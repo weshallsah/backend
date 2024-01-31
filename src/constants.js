@@ -1,1 +1,1 @@
-export const DB_Name = "vidsnap"
+export const DB_Name = "youtube"
