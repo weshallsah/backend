@@ -4,19 +4,29 @@ import { User } from "../models/user.models.js";
 import { uploadonCloud } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import e from "express";
+import Jwt from "jsonwebtoken";
 
 const GenrateToken = async (userID) => {
     try {
 
-        const user = User.findById(userID);
+        const user = await User.findById(userID);
+        // console.log(user._id);
         const AccessToken = user.generateAccessToken();
         const RefreshToken = user.generateRefreshToken();
         user.RefreshToken = RefreshToken;
+        // console.log("AccessToken :", AccessToken);
+        // console.log("RefreshToken :", RefreshToken);
         await user.save({ validateBeforeSave: false });
         return { AccessToken, RefreshToken };
     } catch (error) {
+        console.log(error.message);
         throw new ApiError(500, "something went wrong while genrating token");
     }
+}
+
+const option = {
+    httpOnly: true,
+    secure: true,
 }
 
 const registerUser = asyncHandler(async (req, res) => {
@@ -60,7 +70,7 @@ const registerUser = asyncHandler(async (req, res) => {
         coverImage: coverref.url ?? "",
     });
     const credential = await User.findById(user._id).select(
-        "-password"
+        "-password -RefreshToken"
     );
     if (!credential) {
         throw new ApiError("505", "server errror user not created");
@@ -78,7 +88,8 @@ const Loginuser = asyncHandler(async (req, res) => {
     // do login and geneate the access token and refresh token
     // and after seasion over then auth by by refresh token and access token
     const { email, username, password } = req.body;
-    if (!username || !email) {
+    console.log(username);
+    if (!username && !email) {
         throw new ApiError(400, "username or password is required");
     }
 
@@ -91,12 +102,10 @@ const Loginuser = asyncHandler(async (req, res) => {
         throw new ApiError(401, "password is incorrect");
     }
 
-    const { AccessToken, RefreshToken } = GenrateToken(user._id);
+    const { AccessToken, RefreshToken } = await GenrateToken(user._id);
+    // console.log(AccessToken);
     const loggedInUser = await User.findById(user._id).select("-password -RefreshToken");
-    const option = {
-        httpOnly: true,
-        secure: true,
-    }
+
     return res.status(200)
         .cookie("AccessToken", AccessToken, option)
         .cookie("RefreshToken", RefreshToken, option)
@@ -111,8 +120,68 @@ const Loginuser = asyncHandler(async (req, res) => {
         );
 });
 
-const loggoutUser = asyncHandler(async (req,res) => { 
-    
+const loggoutUser = asyncHandler(async (req, res) => {
+    const id = req.user._id;
+    await User.findByIdAndUpdate(id,
+        {
+            $set: {
+                RefreshToken: undefined,
+            },
+
+        },
+        {
+            new: true,
+        }
+    );
+    const option = {
+        httpOnly: true,
+        secure: true,
+    };
+    return res.status(200)
+        .clearCookie("AccessToken", option)
+        .clearCookie("RefreshToken", option)
+        .json(
+            new ApiResponse(
+                200,
+                {},
+                "user loggedout successfully"
+            )
+        );
 });
 
-export { registerUser, Loginuser };
+const refreshAccessToken = asyncHandler(async (req, res) => {
+    try {
+        const inComingRefreshToken = await req.cookie.RefreshToken || req.body.RefreshToken;
+        if (!inComingRefreshToken) {
+            throw new ApiError(200, "RefreshToken required");
+        }
+        const decodedToken = Jwt.verify(inComingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
+        const user = await User.findById(decodedToken?._id);
+        if (!user) {
+            throw new ApiError(404, "Invalid Refresh Token");
+        }
+        if (inComingRefreshToken != user?.RefreshToken) {
+            throw new ApiError(401, "Refresh Token is expired");
+        }
+        const { AccessToken, newRefreshToken } = await GenrateToken(user._id);
+
+        const loggedInUser = await User.findById(user._id).select("-password -RefreshToken");
+
+        return res.status(200)
+            .cookie("AccessToken", AccessToken, option)
+            .cookie("newRefreshToken", newRefreshToken, option)
+            .json(
+                new ApiResponse(
+                    200,
+                    {
+                        user: loggedInUser, AccessToken, newRefreshToken
+                    },
+                    "AccessToken refreshed successfully"
+                )
+            );
+    } catch (error) {
+        throw new ApiError(501, "Server Error please try again later");
+    }
+});
+
+export { registerUser, Loginuser, loggoutUser, refreshAccessToken };
