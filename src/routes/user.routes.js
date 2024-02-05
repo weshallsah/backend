@@ -1,11 +1,16 @@
 import { Router } from "express";
-import { Loginuser, registerUser, refreshAccessToken } from "../controller/user.controller.js";
+import { Loginuser, registerUser, refreshAccessToken, changeCurrentPassword, updateUser, getUserProfile } from "../controller/user.controller.js";
 import { upload } from "../middlewares/multter.middlewares.js"
 import { verifyJWT } from "../middlewares/userauth.middlewares.js";
-import { loggoutUser } from "../controller/user.controller.js";
+import { loggoutUser, getCurrentUser } from "../controller/user.controller.js";
 
 const router = Router();
 
+router.route("/getuser").post(
+    upload.fields([]),
+    verifyJWT,
+    getUserProfile
+);
 
 router.route("/register").post(
     upload.fields([
@@ -19,6 +24,22 @@ router.route("/login").post(
     Loginuser
 );
 
+router.route("/updateuserinfo").post(
+    upload.fields([]),
+    verifyJWT,
+    updateUser
+);
+
+router.route("/resetpassword").post(
+    upload.fields([]),
+    verifyJWT,
+    changeCurrentPassword
+);
+
+router.route("/getuser").post(
+    verifyJWT,
+    getCurrentUser
+);
 router.route("/logout").post(
     verifyJWT,
     loggoutUser

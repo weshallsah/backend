@@ -43,7 +43,6 @@ const registerUser = asyncHandler(async (req, res) => {
     const userref = await User.findOne({ $or: [{ username }, { email },] });
     if (userref) {
         throw new ApiError(409, "user is alredy exits");
-
     }
     const avatarPath = await req.files?.avatar[0]?.path;
     let coverPath = "";
@@ -88,7 +87,7 @@ const Loginuser = asyncHandler(async (req, res) => {
     // do login and geneate the access token and refresh token
     // and after seasion over then auth by by refresh token and access token
     const { email, username, password } = req.body;
-    console.log(username);
+    // console.log(username);
     if (!username && !email) {
         throw new ApiError(400, "username or password is required");
     }
@@ -184,4 +183,146 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     }
 });
 
-export { registerUser, Loginuser, loggoutUser, refreshAccessToken };
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    const user = await User.findById(req.user._id);
+    const iscorrect = await user.ispasswordCorrect(oldPassword);
+    if (!iscorrect) {
+        throw new ApiError(400, "invalid password");
+    }
+    user.password = newPassword;
+    await user.save({ validateBeforeSave: false });
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {},
+            "Password change successfully"
+        )
+    );
+});
+
+const getCurrentUser = asyncHandler(async (req, res) => {
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            req.user,
+            "current user get successfully"
+        )
+    );
+});
+
+const updateUser = asyncHandler(async (req, res) => {
+    const { fullname, username, email } = req.body;
+    if (!fullname || !password) {
+        throw new ApiError(200, "updation field is required");
+    }
+    const user = User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $set: {
+                fullname: fullname,
+                email: email,
+            }
+        },
+        { new: true },
+    ).select("-passwrod");
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            user,
+            "user detail updated successfully",
+        )
+    );
+});
+
+const getUserProfile = asyncHandler(async (req, res) => {
+    try {
+        const { username } = req.query;
+        console.log(username);
+        // console.log(req.params);
+        // console.log(req.params.querydata);
+        if (!username?.trim()) {
+            throw new ApiError(400, "username is missing");
+        }
+        const channel = await User.aggregate([
+            {
+                $match: {
+                    username: username?.toLowerCase()
+                }
+            },
+            {
+                $lookup: {
+                    from: "subscriptions",
+                    localField: "_id",
+                    foreignField: "channel",
+                    as: "subscriber"
+                }
+            },
+            {
+                $lookup: {
+                    from: "subscriptions",
+                    localField: "_id",
+                    foreignField: "subscriber",
+                    as: "subscribed"
+                }
+            },
+            {
+                $addFields: {
+                    subscribercount: {
+                        $size: "$subscriber"
+                    },
+                    subscribedcount: {
+                        $size: "$subscribed"
+                    },
+                    // subid: "$subscriber.subscriber",
+                    issubscribed: {
+                        $cond: {
+                            if: { $in: [req.user?._id, "$subscriber.subscriber"] },
+                            then: true,
+                            else: false,
+                        }
+                    }
+                }
+            },
+            {
+                $project: {
+                    subid: 1,
+                    fullname: 1,
+                    username: 1,
+                    subscribercount: 1,
+                    subscribedcount: 1,
+                    avatar: 1,
+                    coverimage: 1,
+                    issubscribed: 1,
+                }
+            }
+        ]);
+        console.log(channel);
+        if (!channel) {
+            throw new ApiError(
+                404,
+                "channel not found"
+            );
+        }
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                channel,
+                "get data successfull"
+            )
+        );
+    } catch (error) {
+
+    }
+});
+
+export {
+    registerUser,
+    Loginuser,
+    loggoutUser,
+    refreshAccessToken,
+    changeCurrentPassword,
+    getCurrentUser,
+    updateUser,
+    getUserProfile,
+};
